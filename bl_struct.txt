@@ -1,0 +1,55 @@
+﻿CREATE TABLE db.database
+
+(
+
+    `name` String,
+
+    `username` String,
+
+    `user_ID` String,
+
+    `user_alter_name` String,
+
+    `usermail` String,
+
+    `userpass_plain` String,
+
+    `hash` String,
+
+    `salt` String,
+
+    `algorithm` String,
+
+    `address` String,
+
+    `ipaddress` String,
+
+    `url` String,
+
+    `source_url` String,
+
+    `useragent` String,
+
+    `user_fullname` String,
+
+    `country` String,
+
+    `city` String,
+
+    `state` String,
+
+    `zip` String,
+
+    `tel` String,
+
+    `dob` String,
+
+    `passport` String,
+
+    `type` String,
+
+    `user_additional_info` String,
+
+    `date` Date
+
+)

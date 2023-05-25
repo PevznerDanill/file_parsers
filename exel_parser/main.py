@@ -1,20 +1,15 @@
 import os
 from time import time
-import openpyxl
-from openpyxl.reader import workbook
-from openpyxl.worksheet.worksheet import Worksheet
 from exel_parser.e_parser import ExcelParser
 import datetime
+import pandas
 
 
 def main(target_file):
     start_time = time()
 
-    work_book: workbook = openpyxl.load_workbook(target_file)
-
-    worksheet: Worksheet = work_book.active
-    e_parser = ExcelParser(worksheet)
-    print('Starting to process', worksheet.max_row, 'rows')
+    data_frame = pandas.read_excel(target_file)
+    e_parser = ExcelParser(data_frame=data_frame, chunks=553)
     e_parser.generate_csv()
     total_seconds = time() - start_time
     total_time_str = str(datetime.timedelta(seconds=total_seconds))

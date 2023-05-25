@@ -1,9 +1,8 @@
-from openpyxl.cell.cell import Cell
 import re
 import csv
-from typing import Dict, List, Union, Tuple, Generator
-from openpyxl.worksheet.worksheet import Worksheet
 import logging
+from my_parser import MyParser
+from pandas.core.frame import DataFrame
 
 
 CSV_PATH = 'result.csv'
@@ -13,108 +12,54 @@ with open(CSV_PATH, 'r') as csv_file:
     FIELDS = list(reader)[0]
 
 
-logging.basicConfig(filename='bad_values.log', filemode='w',
-                    format='%(asctime)s - %(message)s', level=logging.INFO)
+class ExcelParser(MyParser):
 
+    logging.basicConfig(filename='bad_values.log', filemode='w',
+                        format='%(asctime)s - %(message)s', level=logging.INFO)
 
-class ExcelParser:
     """
     Класс для обработки данных из worksheet и их записи в csv файл.
     """
-    csv_dict = {
-        field: "" for field in FIELDS
-    }
 
-    row_dict = {}
-
-    user_additional_info = ()
     rows_to_write = []
 
-    def __init__(self, worksheet: Worksheet):
-        self.worksheet = worksheet
-        self.excel_fields_dict = self.set_fields()
-
-    def set_fields(self) -> Dict[int, str]:
-        col_values = (col[0].value.lower() for col in self.worksheet.iter_cols(1, self.worksheet.max_column))
-
-        fields_dict = {
-            column + 1: field_name for column, field_name in enumerate(col_values)
-        }
-        return fields_dict
+    def __init__(self, data_frame: DataFrame, chunks=None):
+        self.data_frame = data_frame
+        self.chunks = chunks
+        super().__init__()
 
     def generate_csv(self):
-        for i in range(1, self.worksheet.max_row):
-            col_values = (col[i].value for col in self.worksheet.iter_cols(1, self.worksheet.max_column))
-            self.process_row(col_values)
-
-        self.write_rows()
-
-    def process_row(self, values_lst: Generator):
-        for ind, value in enumerate(values_lst):
-            if ind + 1 in self.excel_fields_dict.keys():
-                self.row_dict[self.excel_fields_dict[ind + 1]] = str(value)
-
-        self.process_row_dict()
-
-    def process_row_dict(self):
-        self.process_names()
-        self.process_ssn()
-        self.process_address()
-        self.process_company()
-        self.process_zip()
-        self.process_tel()
-        self.row_dict = {}
-        self.csv_dict['user_additional_info'] = "|".join(self.user_additional_info)
-        self.user_additional_info = ()
-        self.rows_to_write.append(self.csv_dict)
-        self.refresh_csv_dict()
-
-    def refresh_csv_dict(self):
-        self.csv_dict = {
-            field: "" for field in FIELDS
-        }
-
-    @classmethod
-    def correct_number(cls, number):
-        digits = re.findall(r'\d', number)
-        if len(digits) == 11:
-            digits = digits[1:]
-        return "1 ({}{}{}) {}{}{} {}{}{}{}".format(*digits)
-
-    def process_tel(self):
-        """
-        Предполагая, что должно быть 11 цифр (или 10 если без начальной единицы),
-        которые могут быть разделены знаками "-" или пробелами. Первые три цифры (со второй по четвертую,
-        если есть единица) могут быть в кавычках.
-        """
-        tel = self.row_dict['mobile number']
-        pattern = r"(?:1(?:-|\s))?(?:\(?\d{3}\)?(?:\s|-))(?:\d{3}(?:\s|-))\d{4}"
-        tel_check = re.fullmatch(pattern, tel)
-        if tel_check:
-            if ('(' in tel and ')' in tel) or ('(' not in tel and ')' not in tel):
-
-                self.csv_dict['tel'] = self.correct_number(tel)
-                return
-        logging.info(f"Bad phone number: {tel}")
-
-    def write_rows(self):
-        with open(CSV_PATH, 'a') as file:
-            writer = csv.DictWriter(file, fieldnames=FIELDS)
-            for data in self.rows_to_write:
-                writer.writerow(data)
-
-    def process_zip(self):
-        user_zip = self.row_dict['zip']
-        if re.fullmatch(
-            r"\d{5}(?:-\d{4})?", user_zip
-        ):
-            self.csv_dict['zip'] = user_zip
+        all_dicts = self.data_frame.to_dict(orient='records')
+        if self.chunks:
+            limit = 0
         else:
-            logging.info(f"Bad zip: {user_zip}")
+            limit = -1
+        for ind, row_dict in enumerate(all_dicts):
+            self.row_dict = self.update_dict(row_dict)
+            self.process_row_dict()
+            if limit >= 0:
+                limit += 1
+                if limit == self.chunks:
+                    self.write_rows()
+                    print(f'Wrote {ind + 1} rows')
+                    limit = 0
+        if len(self.rows_to_write) > 0:
+            print(f'Writing remaining {len(self.rows_to_write)} rows')
+            self.write_rows()
+        print(f'Wrote all {ind+1} rows')
 
-    def process_company(self):
-        position = self.row_dict['position']
-        company = self.row_dict['company']
+    def update_dict(self, file_dict):
+        row_dict = super().update_dict(file_dict)
+        new_dict = {
+            re.sub(r"\s", "_", key.lower()): [str(value), False]
+            for key, value in file_dict.items()
+        }
+        row_dict.update(new_dict)
+        return row_dict
+
+    def company_process(self):
+        position = self.row_dict.get('position')[0]
+        company = self.row_dict.get('company')[0]
         check_position = re.fullmatch(
             r"(?:[a-z]+)(?:\s[a-z]+)*",
             position
@@ -128,60 +73,55 @@ class ExcelParser:
             str_to_append = f"Работает в компании {company} в отделе {self.row_dict['department']} " \
                             f"в должности {position}"
         elif check_company and check_position is None:
-            logging.info(f"Bad position: {position}")
+            self.logger.info(f"Bad position: {position}")
             str_to_append = f"Работает в компании {company} в отделе {self.row_dict['department']}"
         elif check_company is None and check_position:
-            logging.info(f"Bad company: {company}")
+            self.logger.info(f"Bad company: {company}")
             str_to_append = f"Работает в должности {position}"
         else:
-            logging.info(f"Bad company: {company}")
-            logging.info(f"Bad position: {position}")
+            self.logger.info(f"Bad company: {company}")
+            self.logger.info(f"Bad position: {position}")
         if str_to_append is not None:
-            self.user_additional_info += str_to_append,
+            self.row_dict['user_additional_info'] += str_to_append,
+        self.row_dict['company'][1] = True
+        self.row_dict['position'][1] = True
+        self.row_dict['department'][1] = True
 
-    def process_address(self):
-        """
-        Предполагая следующие свойства адреса:
-        - может или нет начинаться с Apt./Suite и номером квартиры;
-        - название улицы может состоять из более одного слова, начинающиеся на заглавные буквы или цифру
-        (например, 05th Avenue) и может содержать цифры и символы "-&'.";
-        - название города может состоять из более одного слова, каждое из которых должно начинаться с
-        заглавной, и содержать символы ".'";
-        - код штата состоит из двух заглавных букв;
-        - zip-код состоит из пяти цифр и может сопровождаться дополнительно дефисом и четырьмя
-        цифрами
-        """
-        address = self.row_dict['address']
-        address_pattern = r"(?:(?:Apt\.\s)|(?:Suite\s)\d+\s)?\d+(?:\s[A-Z\d][A-Za-z\d.'&-]+)+,(?:\s[A-Z][A-Za-z.']+)+,\s[A-Z]{2}\s\d{5}(?:-\d{4})?"
-        if re.fullmatch(address_pattern, address):
-            self.csv_dict['address'] = address
-        else:
-            logging.info(f"Bad address: {address}")
+    def mobile_number_process(self):
+        self.row_dict['tel'] = self.row_dict.pop('mobile_number')
+        return self.tel_process()
 
-    def process_ssn(self):
+    def first_name_process(self):
+        self.row_dict['name'] = self.row_dict.pop('first_name')
+        return self.name_process()
+
+    def ssn_process(self):
         """
         Предполагая, что валидный ssn имеет формат AAA-GG-SSSS и:
         - первые три цифры не могут быть 000, 666 или в диапазоне 900-999;
         - четвертая и пятая цифры должны быть в диапазоне от 01 до 99;
         - последние четыре цифры должны быть в диапазоне 0001 до 9999.
         """
-        ssn = self.row_dict['ssn']
+        ssn = self.row_dict.get('ssn')[0]
         if re.fullmatch(
                 r"(?!666|000|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}",
                 ssn
         ):
-            self.user_additional_info += f"Номер SSN: {ssn}",
+            self.row_dict['user_additional_info'] += f"Номер SSN: {ssn}",
         else:
-            logging.info(f"Bad ssn: {ssn}")
+            self.logger.info(f"Bad ssn: {ssn}")
+        self.row_dict['ssn'][1] = True
 
-    def process_names(self):
-        first_name = self.row_dict['first name']
-        last_name = self.row_dict['last name']
-        if re.fullmatch(r"[A-Z][a-z]+", first_name) and re.fullmatch(r"[A-Z](?:[A-Za-z']+(?!'))", last_name):
-            self.csv_dict['user_fullname'] = f"{first_name} {last_name}"
+    def last_name_process(self):
+        last_name = self.row_dict.get('last_name')[0]
+        if re.fullmatch(r"[A-Z](?:[A-Za-z']+(?!'))", last_name):
+            if len(self.row_dict.get('name')[0]) > 0 and self.row_dict['name'][1] is True:
+                self.row_dict['user_fullname'] = f"{self.row_dict['name'][0]} {last_name}",
+            else:
+                self.row_dict['user_additional_info'] += f"Фамилия: {last_name}",
         else:
-            logging.info(f"Bad names: {first_name} {last_name}")
-
+            self.logger.info(f"Bad last name: {last_name}")
+        self.row_dict['last_name'][1] = True
 
 
 
