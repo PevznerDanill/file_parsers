@@ -10,7 +10,7 @@ def main(target_file):
         sql_content = sql_file.readlines()
         sql_parser = SqlParser(sql_content)
 
-    sql_parser.show_dict()
+    sql_parser.generate_csv()
 
     total_seconds = time() - start_time
     total_time_str = str(datetime.timedelta(seconds=total_seconds))

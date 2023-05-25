@@ -8,6 +8,9 @@ from typing import Dict
 from datetime import datetime
 from datetime import timedelta
 from datetime import date
+import itertools
+import sys
+
 
 
 class MyParser:
@@ -17,6 +20,14 @@ class MyParser:
     logger = logging.getLogger(__name__)
 
     csv_path = 'result.csv'
+
+    date_formats_options = (
+        ('%Y', '%d', '%b'),
+        ('%Y', '%d', '%M'),
+        ('%Y', '%b')
+    )
+
+    symbols = (' ', '-', '/')
 
     start_date = date(1970, 1, 1)
 
@@ -30,11 +41,16 @@ class MyParser:
 
     original_rows_list = []
 
+    date_formats = ('%Y',)
+
     def get_result_fields(self):
         if self.csv_path:
             with open(self.csv_path, 'r') as csv_file:
                 reader = csv.reader(csv_file)
                 return list(reader)[0]
+
+    def get_date_formats(self):
+        pass
 
     def update_dict(self, file_dict):
         row_dict = {}
@@ -101,7 +117,7 @@ class MyParser:
     def email_process(self):
         email = self.row_dict.get('email')[0]
         if not re.fullmatch(
-            r"(?:[A-Za-z0-9]+[._])*[A-Za-z0-9]+@(?:[A-Za-z0-9-]+)(?<!-)(?:\.[A-Z|a-z]{2,})+",
+            r"[\w\-.]+@[a-zA-Z0-9\-]+\.[a-zA-Z]{2,}",
             email
         ):
             self.logger.info(f"Bad email: {email}")
@@ -144,11 +160,25 @@ class MyParser:
         else:
             self.row_dict['address'][1] = True
 
+    def user_fullname_process(self):
+        full_name = self.row_dict.get('user_fullname')[0]
+        if not re.fullmatch(
+            r"(?:(?:[A-Z][A-z]*\.?)(?:(?:\s|-)[A-z]+\.?)*)(?<!\.)", full_name
+        ):
+            self.logger.info(f"Bad user_fullname: {full_name}")
+            self.row_dict['user_fullname'] = ("", True)
+        else:
+            self.row_dict['user_fullname'][1] = True
+
     def name_process(self):
         name = self.row_dict.get('name')[0]
-        if not re.fullmatch(r"[A-Z][a-z]+", name):
+        if not re.fullmatch(r"[A-Z]?[a-z]+", name):
             self.logger.info(f"Bad name: {name}")
             self.row_dict['name'] = ("", True)
+            if len(name.split()) > 1:
+                if not self.row_dict.get('user_fullname'):
+                    self.row_dict['user_fullname'] = [name, False]
+                    self.user_fullname_process()
         else:
             self.row_dict['name'][1] = True
 
@@ -169,3 +199,54 @@ class MyParser:
         self.clean_row_dict(additional_info)
         self.rows_to_write.append(self.row_dict)
         self.row_dict = {}
+
+    def country_process(self):
+        country = self.row_dict.get('country')[0]
+        if not re.fullmatch(
+            r"(?:[A-Z][a-z]+)(?:\s[A-za-z]+){,9}", country
+        ):
+            self.logger.info(f'Bad country name: {country}')
+            self.row_dict['country'] = ("", True)
+        else:
+            self.row_dict['country'][1] = True
+
+    def user_ID_process(self):
+        user_id = self.row_dict.get('user_ID')[0]
+        if not re.fullmatch(
+            r"\d+", user_id
+        ):
+            self.logger.info(f'Bad id: {user_id}')
+            self.row_dict['user_ID'] = ("", True)
+        else:
+            self.row_dict['user_ID'][1] = True
+
+    def username_process(self):
+        username = self.row_dict.get('username')[0]
+        if not re.fullmatch(
+            r"(?:[\da-z_-]+)(?<!-)", username
+        ):
+            self.logger.info(f'Bad username: {username}')
+            self.row_dict['username'] = ("", True)
+        else:
+            self.row_dict['username'][1] = True
+
+    def dob_process(self):
+        if len(self.date_formats) > 1:
+            dob = self.row_dict.get('dob')[0]
+            date_obj = None
+            for date_format in self.date_formats:
+                try:
+                    date_obj = datetime.strptime(dob, date_format)
+                    break
+                except ValueError:
+                    date_obj = None
+            if not date_obj:
+                self.row_dict['dob'] = ("", True)
+                self.logger.info(f"Bad dob: {dob}")
+            else:
+                self.row_dict['dob'][1] = True
+
+        else:
+            print('Date formats are not configured')
+            sys.exit(1)
+
