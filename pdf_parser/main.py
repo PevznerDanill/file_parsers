@@ -12,7 +12,7 @@ def main(target_file):
     with pdfplumber.open(target_file) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
-            p_parser = PdfParser(table)
+            p_parser = PdfParser(table, chunks=7)
             p_parser.generate_csv()
 
     total_seconds = time() - start_time

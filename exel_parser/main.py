@@ -9,7 +9,7 @@ def main(target_file):
     start_time = time()
 
     data_frame = pandas.read_excel(target_file)
-    e_parser = ExcelParser(data_frame=data_frame, chunks=553)
+    e_parser = ExcelParser(data_frame=data_frame, chunks=99)
     e_parser.generate_csv()
     total_seconds = time() - start_time
     total_time_str = str(datetime.timedelta(seconds=total_seconds))

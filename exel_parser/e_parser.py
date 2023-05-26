@@ -3,52 +3,35 @@ import csv
 import logging
 from my_parser import MyParser
 from pandas.core.frame import DataFrame
-
-
-CSV_PATH = 'result.csv'
-
-with open(CSV_PATH, 'r') as csv_file:
-    reader = csv.reader(csv_file)
-    FIELDS = list(reader)[0]
+from pprint import pprint
 
 
 class ExcelParser(MyParser):
 
-    logging.basicConfig(filename='bad_values.log', filemode='w',
-                        format='%(asctime)s - %(message)s', level=logging.INFO)
-
     """
-    Класс для обработки данных из worksheet и их записи в csv файл.
+    Класс для обработки данных из DataFrame, сгенерированного pandas на основе excel файла
+    и их записи в csv файл. Наследник MyParser.
     """
 
-    rows_to_write = []
-
-    def __init__(self, data_frame: DataFrame, chunks=None):
+    def __init__(self, data_frame: DataFrame, chunks=None) -> None:
+        """
+        Перед родительским сохраняет DataFrame.
+        """
         self.data_frame = data_frame
-        self.chunks = chunks
-        super().__init__()
+        super().__init__(chunks=chunks)
 
     def generate_csv(self):
-        all_dicts = self.data_frame.to_dict(orient='records')
-        if self.chunks:
-            limit = 0
-        else:
-            limit = -1
-        for ind, row_dict in enumerate(all_dicts):
-            self.row_dict = self.update_dict(row_dict)
-            self.process_row_dict()
-            if limit >= 0:
-                limit += 1
-                if limit == self.chunks:
-                    self.write_rows()
-                    print(f'Wrote {ind + 1} rows')
-                    limit = 0
-        if len(self.rows_to_write) > 0:
-            print(f'Writing remaining {len(self.rows_to_write)} rows')
-            self.write_rows()
-        print(f'Wrote all {ind+1} rows')
+        """
+        Перед родительским сохраняет данные в original_rows_list
+        """
+        self.original_rows_list = self.data_frame.to_dict(orient='records')
+        super().generate_csv()
+
 
     def update_dict(self, file_dict):
+        """
+        Обновляет созданный родителем row_dict.
+        """
         row_dict = super().update_dict(file_dict)
         new_dict = {
             re.sub(r"\s", "_", key.lower()): [str(value), False]
@@ -58,6 +41,10 @@ class ExcelParser(MyParser):
         return row_dict
 
     def company_process(self):
+        """
+        Проверяет на чистоту строки данные из company и position и кладет их вместе со значением из
+        department в user_additional_info
+        """
         position = self.row_dict.get('position')[0]
         company = self.row_dict.get('company')[0]
         check_position = re.fullmatch(
@@ -88,16 +75,22 @@ class ExcelParser(MyParser):
         self.row_dict['department'][1] = True
 
     def mobile_number_process(self):
+        """
+        Переводит на проверку поля tel.
+        """
         self.row_dict['tel'] = self.row_dict.pop('mobile_number')
         return self.tel_process()
 
     def first_name_process(self):
+        """
+        Переводит на проверку поля name.
+        """
         self.row_dict['name'] = self.row_dict.pop('first_name')
         return self.name_process()
 
     def ssn_process(self):
         """
-        Предполагая, что валидный ssn имеет формат AAA-GG-SSSS и:
+        Проверяет ssn, предполагая, что валидный ssn имеет формат AAA-GG-SSSS и:
         - первые три цифры не могут быть 000, 666 или в диапазоне 900-999;
         - четвертая и пятая цифры должны быть в диапазоне от 01 до 99;
         - последние четыре цифры должны быть в диапазоне 0001 до 9999.
@@ -113,10 +106,15 @@ class ExcelParser(MyParser):
         self.row_dict['ssn'][1] = True
 
     def last_name_process(self):
+        """
+        Проверяет на чистоту last_name и если name уже есть, то вместе с ним записывает в user_fullname,
+        иначе в user_additional_info.
+        """
         last_name = self.row_dict.get('last_name')[0]
+
         if re.fullmatch(r"[A-Z](?:[A-Za-z']+(?!'))", last_name):
             if len(self.row_dict.get('name')[0]) > 0 and self.row_dict['name'][1] is True:
-                self.row_dict['user_fullname'] = f"{self.row_dict['name'][0]} {last_name}",
+                self.row_dict['user_fullname'] = (f"{self.row_dict['name'][0]} {last_name}", True)
             else:
                 self.row_dict['user_additional_info'] += f"Фамилия: {last_name}",
         else:

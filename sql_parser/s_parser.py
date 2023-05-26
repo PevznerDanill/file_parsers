@@ -8,14 +8,25 @@ import itertools
 
 
 class SqlParser(MyParser):
+    """
+    Парсер для sql dump файла, потомок MyParser. Так как он сломан, то просто парсит строку без
+    использований библиотек для чтения sql.
+    """
 
-    def __init__(self, sql_content: List[Union[str, int]]):
+    def __init__(self, sql_content: str, chunks=None) -> None:
+        """
+        Перед родительским, сохраняет строку из sql dump, создает словарь из записей и запускает формирование
+        возможных форматов дат.
+        """
         self.sql_content = sql_content
         self.generate_dict()
         self.get_date_formats()
-        super().__init__()
+        super().__init__(chunks=chunks)
 
-    def get_date_formats(self):
+    def get_date_formats(self) -> None:
+        """
+        Создает кортеж с возможными форматами дат, используя itertools.permutations.
+        """
         for new_format in self.date_formats_options:
             permutations = itertools.permutations(new_format)
             for perm in permutations:
@@ -23,6 +34,9 @@ class SqlParser(MyParser):
                     self.date_formats += f"{symbol}".join(perm),
 
     def sex_process(self):
+        """
+        Проверяет на валидность данные поля sex и, если валидно, добавляет к user_additional_info.
+        """
         sex = self.row_dict.get("sex")[0]
         if re.fullmatch(
             r"M|F", sex
@@ -38,51 +52,58 @@ class SqlParser(MyParser):
 
     @classmethod
     def change_field_names(cls, field_name):
+        """
+        Меняет название полей userid на user_ID и birth на dob
+        """
         if field_name == 'userid':
             return re.sub(r'id', '_ID', field_name)
         if field_name == 'birth':
             return 'dob'
         return field_name
 
-    def generate_csv(self):
-        for row_dict in self.original_rows_list:
-            self.row_dict = self.update_dict(row_dict)
-            self.process_row_dict()
-
-        self.write_rows()
-
     def update_dict(self, file_dict):
+        """
+        Добавляет дополнительные поля.
+        """
         row_dict = super().update_dict(file_dict)
         row_dict.update(file_dict)
         return row_dict
 
     def generate_dict(self):
-        first_line_values = re.search(r"\([a-z`\s,]+\)", self.sql_content[0])[0]
-        field_names = [
-            self.change_field_names(field_name)
-            for field_name in re.findall('`(\w+)`', first_line_values)
-            if field_name != 'mobile'
-        ]
-        all_lines = self.sql_content[1:]
-        for line in all_lines:
-            if not re.search(r"INSERT INTO", line):
-                target_line = re.search(r"\((.+)\)", line).group(1)
-                values = [
-                    [re.sub(r"'(.+)'", r"\1", value), False]
-                    for value in target_line.split(',\t')
+        """
+        Собирает данные из дампа и сохраняет в виде словаря в кортеж original_rows_list.
+        """
+        all_lines = re.finditer(
+            r"\((.+)\)", self.sql_content
+        )
+        for ind, line in enumerate(all_lines):
+            if ind == 0:
+                field_names = [
+                    self.change_field_names(field_name)
+                    for field_name in re.findall('`(\w+)`', line.group(1))
+                    if field_name != 'mobile'
                 ]
 
-                self.original_rows_list.append(
-                    dict(zip(field_names, values))
+            elif not re.search(r"INSERT INTO", line.group(1)):
+                values = (
+                    [re.sub(r"'(.+)'", r"\1", value), False]
+                    for value in line.group(1).split(',\t')
                 )
 
+                self.original_rows_list += dict(zip(field_names, values)),
+
     def password_process(self):
+        """
+        Сохраняет хэш пароля в user_additional_info.
+        Конечно, можно было бы добавить проверку с паттерном типа
+        r"[\da-z]{16,72}", так как это подходило бы популярным алгоритмам хэширования, но
+        все-таки такой алгоритм можно написать и самому и, следовательно, подобный фильтр
+        пропустил бы потенциально валидный хеш с кустарным алгоритмом.
+
+        """
         password = self.row_dict.get('password')[0]
         self.row_dict['user_additional_info'] += f'Хэш пароля: {password}',
         self.row_dict['password'][1] = True
-
-    def show_dict(self):
-        pprint(self.original_rows_list)
 
 
 
