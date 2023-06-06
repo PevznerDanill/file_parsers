@@ -11,6 +11,7 @@ from datetime import timedelta
 from datetime import date
 import itertools
 import sys
+from email_validator import validate_email, EmailNotValidError
 
 
 class MyParser:
@@ -212,15 +213,18 @@ class MyParser:
 
     def email_process(self) -> None:
         """
-        Проверяет валидность email исходя из стандартов Internet Engineering Task Force (IETF).
+        Проверяет валидность email используя библиотеку email_validator. По умолчанию существование
+        email не проверяется.
         """
         email = self.row_dict.get('email')[0]
-        if not re.fullmatch(
-            r"[\w\-.]+@[a-zA-Z0-9\-]+\.[a-zA-Z]{2,}",
-            email
-        ):
-            self.logger.info(f"Bad email: {email}")
-        self.row_dict['email'][1] = True
+        try:
+            v = validate_email(email, check_deliverability=False)
+            email = v["email"]
+
+        except EmailNotValidError as e:
+            self.logger.info(f"Bad email: {email}. {e}")
+        finally:
+            self.row_dict['email'][1] = True
 
     @classmethod
     def correct_number(cls, number: str) -> str:
