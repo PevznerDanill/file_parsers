@@ -1,4 +1,4 @@
-# Парсеры для Blitz Project - Test Task
+# Парсеры - Test Task
 
 ## Описание задачи:
 
